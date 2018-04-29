@@ -2,6 +2,14 @@
 #define _NSF_TAG_H_
 #include "../player/nsf/nsf.h"
 
+#ifndef _WIN32
+#define _MAX_DIR 256
+#define _MAX_DRIVE 3
+#define _MAX_EXT 256
+#define _MAX_FNAME 256
+#define _MAX_PATH 260
+#endif
+
 class NSF_TAG
 {
 public:

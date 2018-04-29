@@ -1,4 +1,8 @@
 #include "nsf_tag.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
 using namespace xgm;
 
 NSF_TAG::NSF_TAG() : sdat(NULL)
@@ -260,4 +264,4 @@ bool NSF_TAG::IsWriteEnable()
     return GetPrivateProfileInt(m_sect,"NSFplugWriteEnable",0,m_tagf)?true:false;
   else
     return false;
-}
+}

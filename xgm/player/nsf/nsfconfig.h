@@ -39,8 +39,7 @@ namespace xgm
       MutexGuard mg_(this);
       if (id < 0) id = 0;
       if (id >= NES_CHANNEL_MAX) id = NES_CHANNEL_MAX-1;
-      char num[5];
-      ::itoa(id, num, 10);
+      std::string num = std::to_string(id);
       std::string str;
       str = "CHANNEL_";
       if (id < 10) str += "0";

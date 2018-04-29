@@ -9,8 +9,7 @@
 #include <vector>
 #include <list>
 #include <set>
-
-#include <windows.h> // for thread safety
+#include <mutex>
 
 namespace vcm
 {
@@ -92,24 +91,22 @@ namespace vcm
     std::map < std::string, Value > data;
 
     // thread safety
-    HANDLE mutex;
+	std::mutex mutex;
     class MutexGuard {
       protected:
-        Configuration *c;
+		std::lock_guard<std::mutex> lock;
       public:
-        MutexGuard(Configuration* c_) { c = c_; ::WaitForSingleObject(c->mutex, INFINITE); }
-        ~MutexGuard() { ::ReleaseMutex(c->mutex); }
+		MutexGuard(Configuration* c_) : lock(c_->mutex) {}
+		~MutexGuard() {}
     };
 
   public:
     // thread safety
     Configuration()
     {
-      mutex = ::CreateMutex(NULL, false, NULL);
     }
     ~Configuration()
     {
-      ::CloseHandle(mutex);
     }
 
     // 値を読む．無ければエラー．

@@ -99,7 +99,7 @@ namespace xgm
      *
      * @return タイトル文字列 (作曲者 - タイトル)
      */
-    char *GetTitleString (const char *format=NULL, int song=-1);
+    char *GetTitleString (const char *format=nullptr, int song=-1);
     char *GetPlaylistString (const char *format, bool b);
     int GetLength ();
     void SetTitleString (char *);

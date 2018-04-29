@@ -114,8 +114,7 @@ NSFPlayerConfig::NSFPlayerConfig () : PlayerConfig ()
   for (i = 0; i < NES_CHANNEL_MAX; ++i)
   {
       std::string str;
-      char num[5];
-      ::itoa(i, num, 10);
+	  std::string num = std::to_string(i);
       str = "CHANNEL_";
       if (i < 10) str += "0";
       str += num;
@@ -185,7 +184,7 @@ NSFPlayerConfig::~NSFPlayerConfig ()
 bool NSFPlayerConfig::Load (const char *path, const char *sect, const char *name)
 {
   char temp[256];
-  GetPrivateProfileString(sect,name,data[name].GetStr().c_str(),temp,255,path);
+  //GetPrivateProfileString(sect,name,data[name].GetStr().c_str(),temp,255,path);
   data[name] = vcm::Value(temp);
   return true;
 }
@@ -201,7 +200,7 @@ bool NSFPlayerConfig::Load (const char *path, const char *sect)
 
 bool NSFPlayerConfig::Save (const char *path, const char *sect, const char *name)
 {
-  WritePrivateProfileString (sect, name, data[name], path);
+  //WritePrivateProfileString (sect, name, data[name], path);
   return true;
 }
 
