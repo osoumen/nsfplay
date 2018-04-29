@@ -1,6 +1,7 @@
 #include "log_cpu.h"
 #include "../CPU/nes_cpu.h"
 #include "../../player/nsf/nsf.h"
+#include <string.h>
 
 namespace xgm
 {

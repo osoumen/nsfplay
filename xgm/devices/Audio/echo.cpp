@@ -1,4 +1,5 @@
 #include "echo.h"
+#include <string.h>
 
 using namespace xgm;
 

@@ -1,4 +1,5 @@
 #include "nes_n106.h"
+#include <string.h>
 
 namespace xgm {
 

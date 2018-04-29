@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "nes_bank.h"
 
 // this workaround solves a problem with mirrored FDS RAM writes

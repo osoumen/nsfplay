@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string.h>
 #include "nes_cpu.h"
 
 #define DEBUG_RW 0

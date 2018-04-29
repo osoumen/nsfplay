@@ -1,5 +1,6 @@
 #include "nes_dmc.h"
 #include "nes_apu.h"
+#include <stdlib.h>
 
 namespace xgm
 {

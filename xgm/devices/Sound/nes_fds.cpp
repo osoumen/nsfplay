@@ -1,4 +1,5 @@
 #include "nes_fds.h"
+#include <string.h>
 
 namespace xgm {
 

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string.h>
 #include "nes_mem.h"
 
 namespace xgm

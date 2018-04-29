@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string.h>
 #include "ram64k.h"
 
 namespace xgm
