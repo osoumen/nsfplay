@@ -184,7 +184,9 @@ NSFPlayerConfig::~NSFPlayerConfig ()
 bool NSFPlayerConfig::Load (const char *path, const char *sect, const char *name)
 {
   char temp[256];
-  //GetPrivateProfileString(sect,name,data[name].GetStr().c_str(),temp,255,path);
+#ifdef _WIN32
+  GetPrivateProfileString(sect,name,data[name].GetStr().c_str(),temp,255,path);
+#endif
   data[name] = vcm::Value(temp);
   return true;
 }
@@ -200,7 +202,9 @@ bool NSFPlayerConfig::Load (const char *path, const char *sect)
 
 bool NSFPlayerConfig::Save (const char *path, const char *sect, const char *name)
 {
-  //WritePrivateProfileString (sect, name, data[name], path);
+#ifdef _WIN32
+  WritePrivateProfileString (sect, name, data[name], path);
+#endif
   return true;
 }
 
