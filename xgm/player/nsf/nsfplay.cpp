@@ -238,7 +238,7 @@ namespace xgm
   {
     rate = r;
 
-    int region = GetRegion(nsf->pal_ntsc);
+    int region = GetRegion(nsf->regn, nsf->regn_pref);
     bool pal = (region == REGION_PAL);
     dmc->SetPal(pal);
 
@@ -326,7 +326,7 @@ namespace xgm
     apu_clock_rest = 0.0;
     cpu_clock_rest = 0.0;
 
-    int region = GetRegion(nsf->pal_ntsc);
+    int region = GetRegion(nsf->regn, nsf->regn_pref);
     switch (region)
     {
         default:
@@ -359,7 +359,12 @@ namespace xgm
     if((*config)["VSYNC_ADJUST"])
         speed = ((region == REGION_NTSC) ? 60.0988 : 50.0070);
     else
-        speed = 1000000.0 / ((region == REGION_NTSC)? nsf->speed_ntsc : nsf->speed_pal);
+    {
+        UINT16 nsfspeed = (region == REGION_DENDY) ? nsf->speed_dendy :
+                          (region == REGION_PAL  ) ? nsf->speed_pal :
+                                                     nsf->speed_ntsc;
+        speed = 1000000.0 / nsfspeed;
+    }
     DEBUG_OUT("Playback mode: %s\n",
         (region==REGION_PAL)?"PAL":
         (region==REGION_DENDY)?"DENDY":
@@ -372,7 +377,13 @@ namespace xgm
       song = nsf->nsfe_plst[song];
     }
 
-    cpu.Start (nsf->init_address, nsf->play_address, speed, song, (region == REGION_PAL)?1:0);
+    int start_x = (region == REGION_PAL) ? 1 : 0;
+    if (region == REGION_DENDY && (nsf->regn & 4)) start_x = 2; // use 2 for Dendy iff explicitly supported, otherwise 0
+
+    // HACK
+    DEBUG_OUT("start_x: %d\n", start_x);
+
+    cpu.Start (nsf->init_address, nsf->play_address, speed, song, start_x);
 
     // マスク更新
     apu->SetMask( (*config)["MASK"].GetInt()    );
@@ -751,7 +762,44 @@ namespace xgm
 
     filter[id].SetParam (4700.0, config->GetDeviceConfig(id,"FILTER").GetInt());
 
-    amp[id].SetVolume (config->GetDeviceConfig(id,"VOLUME"));
+    // adjust volume by NSFE mixe chunk
+
+    const int MIXE_DEVICE_MAP[NES_DEVICE_MAX] = { 0, 1, 7, 5, 6, 2, 3, 4 }; // map device ID to mixe
+    const int MIXE_DEVICE_ADJUST[NSFE_MIXES] =
+    {
+        // millibels difference between device "square" and APU square
+        0,    // APU (1x)
+        -220, // DMC
+        0,    // VRC6 (1x)
+        1340, // VRC7
+        690,  // FDS (~2.4x)
+        0,    // MMC5 (1x)
+        1540, // N163 (~6.0x)
+        -250,  // 5B
+    };
+
+    const int mixe_device = MIXE_DEVICE_MAP[id];
+    int mixe = MIXE_DEVICE_ADJUST[mixe_device];
+    if (nsf)
+    {
+        int new_mixe = nsf->nsfe_mixe[mixe_device];
+        if (new_mixe != NSFE_MIXE_DEFAULT)
+        {
+            mixe = new_mixe;
+        }
+    }
+    mixe -= MIXE_DEVICE_ADJUST[mixe_device]; // millibels to adjust volume
+
+    int device_volume = config->GetDeviceConfig(id,"VOLUME");
+    if (mixe != 0)
+    {
+        double adjust = ::pow(10,double(mixe)/2000.0); // millibels to amplitude change
+        device_volume = int(128.0 * adjust);
+        if (device_volume > 1024) device_volume = 1024; // sanity clamp to 4x default
+        if (device_volume < 0) device_volume = 0; // should be impossible
+    }
+
+    amp[id].SetVolume (device_volume);
     amp[id].SetMute (config->GetDeviceConfig(id,"MUTE"));
     //amp[id].SetCompress (config->GetDeviceConfig(id,"THRESHOLD"), config->GetDeviceConfig(id,"TWEIGHT"));
     amp[id].SetCompress (config->GetDeviceConfig(id,"THRESHOLD"), -1);
@@ -839,28 +887,56 @@ namespace xgm
     }
   }
 
-  int NSFPlayer::GetRegion (UINT8 flags)
+  int NSFPlayer::GetRegion (UINT8 flags, int pref)
   {
-      int pref = config->GetValue("REGION").GetInt();
+      int user = config->GetValue("REGION").GetInt();
 
       // user forced region
-      if (pref == 3) return REGION_NTSC;
-      if (pref == 4) return REGION_PAL;
-      if (pref == 5) return REGION_DENDY;
+      if (user == 4) return REGION_NTSC;
+      if (user == 5) return REGION_PAL;
+      if (user == 6) return REGION_DENDY;
 
-      // single-mode NSF
-      if (flags == 0) return REGION_NTSC;
-      if (flags == 1) return REGION_PAL;
+      int nsf_region = -1;
+      int usr_region = -1;
 
-      if (flags & 2) // dual mode
+      if (pref >= 0) // NSF preference
       {
-          if (pref == 1) return REGION_NTSC;
-          if (pref == 2) return REGION_PAL;
-          // else pref == 0 or invalid, use auto setting based on flags bit
-          return (flags & 1) ? REGION_PAL : REGION_NTSC;
+          if (pref == 0) nsf_region = REGION_NTSC;
+          if (pref == 1) nsf_region = REGION_PAL;
+          if (pref == 2) nsf_region = REGION_DENDY;
       }
 
-      return REGION_NTSC; // fallback for invalid flags
+      if (user > 0) // user preference
+      {
+          if (user == 1) usr_region = REGION_NTSC;
+          if (user == 2) usr_region = REGION_PAL;
+          if (user == 3) usr_region = REGION_DENDY;
+
+          // cancel preference if unavailable
+          if (usr_region == REGION_DENDY && !(flags & 4)) usr_region = -1;
+          if (usr_region == REGION_PAL   && !(flags & 2)) usr_region = -1;
+          if (usr_region == REGION_NTSC  && !(flags & 1)) usr_region = -1;
+      }
+
+      // user preference first, then fall back to NSF preference
+      int region = usr_region;
+      if (region < 0) region = nsf_region;
+
+      // extra fallback if the chosen region is not supported
+      if (region == REGION_DENDY && !(flags & 4)) region = -1;
+      if (region == REGION_PAL   && !(flags & 2)) region = -1;
+      if (region == REGION_NTSC  && !(flags & 1)) region = -1;
+
+      // a valid region!
+      if (region >= REGION_NTSC && region <= REGION_DENDY) return region;
+
+      // any port in a storm
+      if (flags & 1) return REGION_NTSC;
+      if (flags & 2) return REGION_PAL;
+      if (flags & 4) return REGION_DENDY;
+
+      // no valid regions? giving up
+      return REGION_NTSC;
   }
 
 }

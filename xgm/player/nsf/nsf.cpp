@@ -12,6 +12,9 @@ extern "C"
 namespace xgm
 {
 
+UINT8 CONVERT_REGN[4]      = { 0x01, 0x02, 0x03, 0x03 }; // NTSC, PAL, DUAL, DUAL
+int   CONVERT_REGN_PREF[4] = {   -1,   -1,    0,    1 }; // Any,  Any, NTSC,  PAL
+
 static int is_sjis_prefix(int c)
 {
   if((0x81<=c&&c<=0x9F)||(0xE0<=c&&c<=0xFC)) return 1 ;
@@ -32,6 +35,7 @@ static int is_sjis_prefix(int c)
     nsfe_image = NULL;
     nsfe_plst = NULL;
     nsfe_plst_size = 0;
+    for (int i=0; i<NSFE_MIXES; ++i) nsfe_mixe[i] = NSFE_MIXE_DEFAULT;
   }
 
   NSF::~NSF ()
@@ -407,6 +411,9 @@ static int is_sjis_prefix(int c)
       nsfe_entry[i].fade = -1;
     }
 
+    // 'mixe'
+    for (int i=0; i<NSFE_MIXES; ++i) nsfe_mixe[i] = NSFE_MIXE_DEFAULT;
+
     // load the NSF or NSFe
 
     memcpy (magic, image, 4);
@@ -442,11 +449,21 @@ static int is_sjis_prefix(int c)
     memcpy (bankswitch, image + 0x70, 8);
     speed_pal = image[0x78] | (image[0x79] << 8);
     pal_ntsc = image[0x7a];
-
-    if(speed_pal==0 ) speed_pal  = 19997;
-    if(speed_ntsc==0) speed_ntsc = 16639;
-
     soundchip = image[0x7b];
+    nsf2_bits = image[0x7c];
+    unsigned int suffix =
+        (image[0x7d] <<  0) |
+        (image[0x7e] <<  8) |
+        (image[0x7f] << 16) ;
+
+    if (version < 2) nsf2_bits = 0;
+
+    regn      = CONVERT_REGN[     pal_ntsc & 3];
+    regn_pref = CONVERT_REGN_PREF[pal_ntsc & 3];
+
+    if(speed_ntsc ==0) speed_ntsc  = 16639;
+    if(speed_pal  ==0) speed_pal   = 19997;
+    if(speed_dendy==0) speed_dendy = speed_pal;
 
     use_vrc6 = soundchip &  1 ? true : false;
     use_vrc7 = soundchip &  2 ? true : false;
@@ -464,10 +481,22 @@ static int is_sjis_prefix(int c)
 
     song = start - 1;
 
+    if (suffix != 0)
+    {
+        suffix += 0x80; // add header to suffix location
+        int suffix_size = size - suffix;
+        if (suffix_size < 0) return false; // no data at suffix
+        bool result = LoadNSFe(image + suffix, UINT32(suffix_size), true);
+        if ((nsf2_bits & 0x80) && !result)
+        {
+            return false; // NSF2 bit 7 indicates metadata parsing is mandatory
+        }
+    }
+
     return true;
   }
 
-  bool NSF::LoadNSFe (UINT8 * image, UINT32 size, bool info)
+  bool NSF::LoadNSFe (UINT8 * image, UINT32 size, bool nsf2)
   {
     // store entire file for string references, etc.
     delete[] nsfe_image;
@@ -476,20 +505,38 @@ static int is_sjis_prefix(int c)
     nsfe_image[size] = 0; // null terminator for safety
     image = nsfe_image;
 
-    if (size < 4) // no FourCC
-      return false;
-
-    memcpy (magic, image, 4);
-    magic[4] = '\0';
-
-    if (strcmp ("NSFE", magic))
+    bool info = false;
+    bool data = false;
+    UINT32 chunk_offset = 0;
+    if (!nsf2)
     {
-      return false;
+        if (size < 4) // no FourCC
+          return false;
+
+        memcpy (magic, image, 4);
+        magic[4] = '\0';
+
+        if (strcmp ("NSFE", magic))
+        {
+            return false;
+        }
+        chunk_offset = 4; // skip 'NSFE'
+
+        // NSFe has no speed specification by default (see RATE chunk)
+        speed_ntsc  = 16639; // 60.09Hz
+        speed_pal   = 19997; // 50.00Hz
+        speed_dendy = speed_pal;
+    }
+    else
+    {
+        info = true;
+        data = true;
     }
 
-    UINT32 chunk_offset = 4; // skip 'NSFE'
     while (true)
     {
+        if ((size-chunk_offset) == 0) break; // end of file without NEND, acceptable?
+
         if ((size-chunk_offset) < 8) // not enough data for chunk size + FourCC
           return false;
 
@@ -518,6 +565,9 @@ static int is_sjis_prefix(int c)
 
         if (!strcmp(cid, "INFO"))
         {
+          if (info == true)
+            return false;
+
           if (chunk_size < 0x0A)
             return false;
 
@@ -531,9 +581,8 @@ static int is_sjis_prefix(int c)
           start        = chunk[0x09] + 1; // note NSFe is 0 based, unlike NSF
           total_songs  = songs;
 
-          // NSFe doesn't allow custom speeds
-          speed_ntsc = 16639; // 60.09Hz
-          speed_pal  = 19997; // 50.00Hz
+          regn      = CONVERT_REGN[     pal_ntsc & 3];
+          regn_pref = CONVERT_REGN_PREF[pal_ntsc & 3];
 
           // other variables contained in other banks
           memset (bankswitch, 0, 8);
@@ -571,19 +620,19 @@ static int is_sjis_prefix(int c)
         {
           if (!info)
             return false;
+          if (data)
+            return false;
 
           delete[]body;
           body = new  UINT8[chunk_size];
           memcpy (body, chunk, chunk_size);
           bodysize = chunk_size;
+
+          // DATA chunk read
+          data = true;
         }
         else if (!strcmp(cid, "BANK"))
         {
-          if (!info)
-            return false;
-          if (chunk_size < 8)
-            return false;
-
           for (unsigned int i=0; i < 8 && i < chunk_size; ++i)
           {
             bankswitch[i] = chunk[i];
@@ -591,13 +640,16 @@ static int is_sjis_prefix(int c)
         }
         else if (!strcmp(cid, "RATE"))
         {
-          if (!info)
-            return false;
-          if (chunk_size < 4)
-            return false;
-
-          speed_ntsc = chunk[0] | (chunk[1] << 8);
-          speed_pal  = chunk[2] | (chunk[3] << 8);
+          if (chunk_size >= 2) speed_ntsc  = chunk[0] | (chunk[1] << 8);
+          if (chunk_size >= 4) speed_pal   = chunk[2] | (chunk[3] << 8);
+          if (chunk_size >= 6) speed_dendy = chunk[4] | (chunk[5] << 8);
+          if (chunk_size <  6) speed_dendy = speed_pal;
+        }
+        else if (!strcmp(cid, "NSF2"))
+        {
+          version = 2;
+          // TODO
+          // contains the NSF2 feature bitfield (to be implemented in future)
         }
         else if (!strcmp(cid, "auth"))
         {
@@ -673,6 +725,29 @@ static int is_sjis_prefix(int c)
           text = reinterpret_cast<char*>(chunk);
           text_len = chunk_size;
         }
+        else if (!strcmp(cid, "mixe"))
+        {
+          unsigned int pos = 0;
+          while (pos + 3 <= chunk_size)
+          {
+            unsigned int mixe_index = chunk[pos+0];
+            INT16 mixe_value = UINT16(chunk[pos+1] + (chunk[pos+2] << 8));
+
+            if (mixe_index >= NSFE_MIXES) return false; // invalid mixe index
+
+            // max value should never be used, but just in case, fake it with max-1
+            // (was using max value to specify "default" instead)
+            if (mixe_value == NSFE_MIXE_DEFAULT) mixe_value = NSFE_MIXE_DEFAULT-1;
+
+            nsfe_mixe[mixe_index] = mixe_value;
+            pos += 3;
+          }
+        }
+        else if (!strcmp(cid, "regn"))
+        {
+            if (chunk_size >= 1) regn = chunk[0];
+            if (chunk_size >= 2) regn_pref = chunk[1];
+        }
         else // unknown chunk
         {
           if (cid[0] >= 'A' && cid[0] <= 'Z')
@@ -704,6 +779,7 @@ static int is_sjis_prefix(int c)
     DEBUG_OUT ("Copyright:%s\n", copyright);
     DEBUG_OUT ("Speed(N): %d\n", speed_ntsc);
     DEBUG_OUT ("Speed(P): %d\n", speed_pal);
+    DEBUG_OUT ("Speed(D): %d\n", speed_dendy);
 
     DEBUG_OUT ("Bank :");
     for (i = 0; i < 8; i++)
@@ -712,12 +788,10 @@ static int is_sjis_prefix(int c)
     }
     DEBUG_OUT ("\n");
 
-    if (pal_ntsc & 1)
-      DEBUG_OUT ("PAL mode.\n");
-    else
-      DEBUG_OUT ("NTSC mode.\n");
-    if (pal_ntsc & 2)
-      DEBUG_OUT ("Dual PAL and NTSC mode.\n");
+    if (regn & 1) DEBUG_OUT ("PAL\n");
+    if (regn & 2) DEBUG_OUT ("NTSC\n");
+    if (regn & 4) DEBUG_OUT ("Dendy\n");
+    if (regn == 0) DEBUG_OUT ("No region?\n");
 
     if (soundchip & 1)
       DEBUG_OUT ("VRC6 ");
